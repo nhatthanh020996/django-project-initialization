@@ -1,0 +1,199 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:6.2-alpine
+    hostname: redis
+    container_name: redis
+    restart: always
+    ports:
+      - '6379:6379'
+    networks:
+      - internal-network
+    command: redis-server --save 20 1 --loglevel warning --requirepass eYVX7EwVmmxKPCDmwMtyKVge8oLd2t81
+    volumes:
+      - 'redis_vol:/data'
+
+
+  postgres:
+    image: docker.io/bitnami/postgresql:16
+    hostname: posgres
+    container_name: postgres
+    restart: always
+    ports:
+      - '5432:5432'
+    volumes:
+      - 'postgres_vol:/bitnami/postgresql'
+      # - './postgres_conf:/opt/bitnami/postgresql/conf'
+    env_file:
+      - ./.env
+    networks:
+      - internal-network
+
+
+  # mongodb:
+  #   image: docker.io/bitnami/mongodb:7.0
+  #   hostname: mongodb
+  #   container_name: mongodb
+  #   restart: always
+  #   ports:
+  #     - "27017:27017"
+  #   volumes:
+  #     - 'mongodb_vol:/bitnami/mongodb'
+  #     - ./docker-entrypoint-initdb.d/mongo.entrypoint-initdb.js:/docker-entrypoint-initdb.d/mongo.entrypoint-initdb.js
+  #   networks:
+  #     - internal-network
+  #   env_file:
+  #     - ./.env
+
+
+  pgbackups:
+    image: prodrigestivill/postgres-backup-local
+    container_name: pgbackups
+    restart: always
+    user: postgres:postgres # Optional: see below
+    networks:
+      - internal-network
+    volumes:
+      - pgbackups_vol:/backups
+    depends_on:
+      - postgres
+    env_file:
+      - ./.env
+    environment:
+      - POSTGRES_HOST=${PGBACKUP_POSTGRES_HOST}
+      - POSTGRES_DB=${PGBACKUP_POSTGRES_DB}
+      - POSTGRES_USER=${PGBACKUP_POSTGRES_USER}
+      - SCHEDULE=${PGBACKUP_SCHEDULE}
+      - BACKUP_KEEP_DAYS=${PGBACKUP_BACKUP_KEEP_DAYS}
+      - BACKUP_KEEP_WEEKS=${PGBACKUP_BACKUP_KEEP_WEEKS}
+      - BACKUP_KEEP_MONTHS=${PGBACKUP_BACKUP_KEEP_MONTHS}
+      - HEALTHCHECK_PORT=${PGBACKUP_HEALTHCHECK_PORT}
+
+
+  kafka:
+    image: bitnami/kafka:latest
+    hostname: kafka
+    container_name: kafka
+    user: "0:0"
+    ports:
+      - "9095:9095"
+    volumes:
+      - kafka_vol:/bitnami/kafka
+    networks:
+      - internal-network
+    env_file:
+      - ./.env
+    environment:
+      KAFKA_CFG_NODE_ID: 0
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+      KAFKA_CFG_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,BROKER://:9094,EXTERNAL://:9095
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,BROKER://kafka:9094,EXTERNAL://${KAFKA_EXTERNAL_HOST}:${KAFKA_EXTERNAL_PORT}
+      
+      KAFKA_CLIENT_USERS: ${KAFKA_CLIENT_USERS}
+      KAFKA_CLIENT_PASSWORDS: ${KAFKA_CLIENT_PASSWORDS}
+      KAFKA_CLIENT_LISTENER_NAME: EXTERNAL
+      KAFKA_CFG_SASL_ENABLED_MECHANISMS: PLAIN
+
+      KAFKA_CFG_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+      KAFKA_INTER_BROKER_USER: ${KAFKA_INTER_BROKER_USER}
+      KAFKA_INTER_BROKER_PASSWORD: ${KAFKA_INTER_BROKER_PASSWORD}
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: BROKER
+
+      KAFKA_CFG_SASL_MECHANISM_CONTROLLER_PROTOCOL: PLAIN
+      KAFKA_CONTROLLER_USER: ${KAFKA_CONTROLLER_USER}
+      KAFKA_CONTROLLER_PASSWORD: ${KAFKA_CONTROLLER_PASSWORD}
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
+
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: EXTERNAL:SASL_PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT,INTERNAL:PLAINTEXT,CONTROLLER:SASL_PLAINTEXT,BROKER:SASL_PLAINTEXT
+
+    restart: unless-stopped
+
+
+  upstream:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    hostname: upstream
+    container_name: upstream
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - internal-network
+    volumes:
+      - '../logs:/code/logs'
+    env_file:
+      - ../.env
+
+  nginx:
+    image: docker.io/bitnami/nginx:1.25
+    hostname: nginx
+    container_name: nginx
+    ports:
+      - '80:8080'
+    depends_on:
+      - upstream
+    networks:
+      - internal-network
+    volumes:
+      - ./nginx/nginx.conf:/opt/bitnami/nginx/conf/nginx.conf:ro
+      - ./nginx/server_blocks:/opt/bitnami/nginx/conf/server_blocks
+      - nginx_vol:/opt/bitnami/nginx/logs
+
+
+networks:
+  internal-network:
+    name: internal-network
+    driver: bridge
+
+volumes:
+  postgres_vol:
+    driver: local
+    name: postgres_vol
+    driver_opts:
+      type: none
+      device: /usr/docker/postgres_vol
+      o: bind
+
+  mongodb_vol:
+    driver: local
+    name: mongodb_vol
+    driver_opts:
+      type: none
+      device: /usr/docker/mongodb_vol
+      o: bind
+
+  redis_vol:
+    driver: local
+    name: redis_vol
+    driver_opts:
+      type: none
+      device: /usr/docker/redis_vol
+      o: bind
+
+  nginx_vol:
+    driver: local
+    name: nginx_vol
+    driver_opts:
+      type: none
+      device: /usr/docker/nginx_vol
+      o: bind
+
+  pgbackups_vol:
+    driver: local
+    name: pgbackups_vol
+    driver_opts:
+      type: none
+      device: /usr/docker/pgbackups_vol
+      o: bind
+
+  kafka_vol:
+    name: kafka_vol
+    driver: local
+    driver_opts:
+      type: none
+      device: /usr/docker/kafka_vol
+      o: bind

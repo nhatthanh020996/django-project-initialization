@@ -1,0 +1,15 @@
+amqp
+asgiref
+async-timeout
+backports.zoneinfo;python_version<"3.9"
+Django
+django-redis
+djangorestframework
+pika
+psycopg2-binary
+python-json-logger
+pytz
+redis
+sqlparse
+typing_extensions
+vine

@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.7.0
+    container_name: filebeat
+    network_mode: "host"
+    command:
+      - -e
+      - --strict.perms=false
+    env_file:
+      - ../.env
+    volumes:
+      - ${FILEBEAT_LOG_FOLDER}:/opt/logs
+      - ./filebeat.yml:/usr/share/filebeat/filebeat.yml:ro,Z
+    environment:
+      FILEBEAT_INTERNAL_PASSWORD: ${FILEBEAT_INTERNAL_PASSWORD}
